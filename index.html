@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Windows 安全中心</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+        background: #000;
+        font-family: "Consolas", "Microsoft YaHei", monospace;
+        overflow: hidden;
+        cursor: none;
+    }
+
+    .disclaimer {
+        position: fixed;
+        bottom: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        color: rgba(255,255,255,0.06);
+        font-size: 9px;
+        z-index: 9999;
+        letter-spacing: 3px;
+    }
+
+    /* ===== BSOD ===== */
+    #bsod {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: #0078d7; z-index: 100;
+        display: flex; align-items: flex-start; justify-content: center;
+        padding-top: 10vh; opacity: 0; pointer-events: none;
+        transition: opacity 0.6s;
+    }
+    #bsod.show { opacity: 1; pointer-events: auto; }
+    #bsod .inner { max-width: 720px; padding: 20px 40px; }
+    #bsod .face { font-size: 90px; margin-bottom: 15px; }
+    #bsod h1 { font-size: 26px; font-weight: 600; margin-bottom: 12px; color: #fff; }
+    #bsod p { font-size: 14px; line-height: 1.7; opacity: 0.9; margin-bottom: 8px; }
+    #bsod .stop { font-size: 24px; font-weight: bold; margin: 18px 0 10px; color: #fff; }
+    #bsod .code { font-family: "Consolas", monospace; font-size: 13px; opacity: 0.8; margin-top: 8px; }
+    #bsod .progress-row { margin-top: 25px; display: flex; align-items: center; gap: 10px; }
+    #bsod .spinner {
+        width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.25);
+        border-top-color: #fff; border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #bsod .pct { font-size: 12px; font-family: "Consolas", monospace; color: #fff; }
+    #bsod .bar-bg { flex: 1; height: 3px; background: rgba(255,255,255,0.2); border-radius: 2px; }
+    #bsod .bar-fill { height: 100%; width: 0%; background: #fff; border-radius: 2px; transition: width 0.25s; }
+    #bsod .qr { margin-top: 25px; width: 70px; height: 70px; background: rgba(255,255,255,0.08);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 9px; color: rgba(255,255,255,0.4); letter-spacing: 1px; }
+
+    /* ===== CMD ===== */
+    #cmd {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: #0a0a0a; z-index: 80; display: none; flex-direction: column;
+    }
+    #cmd.show { display: flex; }
+    #cmd .titlebar {
+        background: #111; padding: 5px 12px; display: flex; align-items: center;
+        border-bottom: 1px solid #1a1a1a; font-size: 11px; color: #555;
+    }
+    #cmd .titlebar span:first-child { flex: 1; text-align: center; letter-spacing: 2px; }
+    #cmd .body {
+        flex: 1; padding: 8px 14px; font-size: 12px; color: #0a0;
+        overflow-y: auto; line-height: 1.55; white-space: pre-wrap;
+    }
+    #cmd .body .dim { color: #444; }
+    #cmd .body .warn { color: #fa0; }
+    #cmd .body .err { color: #f33; }
+    #cmd .body .info { color: #0af; }
+    #cmd .body .white { color: #ccc; }
+    #cmd .body .hl { color: #f0f; }
+    .cmd-cursor { display: inline-block; width: 7px; height: 13px; background: #0a0;
+        animation: blink 0.7s step-end infinite; vertical-align: text-bottom; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+    /* ===== 全屏跳吓 ===== */
+    #scare {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        z-index: 200; display: none; background: #000;
+    }
+    #scare.show { display: block; }
+
+    /* ===== 屏幕撕裂效果 ===== */
+    #glitch {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        z-index: 300; pointer-events: none; display: none;
+    }
+    #glitch.show { display: block; }
+
+    /* ===== 假弹窗 ===== */
+    .fake-alert {
+        position: fixed; z-index: 250; display: none;
+        background: #1f1f1f; border: 1px solid #444; border-radius: 6px;
+        padding: 20px 30px; min-width: 350px; box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+    }
+    .fake-alert.show { display: block; }
+    .fake-alert h3 { color: #f66; font-size: 15px; margin-bottom: 12px; }
+    .fake-alert p { color: #ccc; font-size: 13px; margin-bottom: 15px; line-height: 1.6; }
+    .fake-alert button {
+        background: #333; color: #ccc; border: 1px solid #555;
+        padding: 6px 20px; border-radius: 3px; cursor: pointer; font-size: 12px;
+    }
+    .fake-alert button:hover { background: #444; }
+
+    /* canvas used by js */
+</style>
+</head>
+<body>
+
+<!-- BSOD -->
+<div id="bsod">
+    <div class="inner">
+        <div class="face">:(</div>
+        <h1>你的设备遇到问题，需要重启。</h1>
+        <p>我们只收集某些错误信息，然后为你重新启动。</p>
+        <div class="stop">已完成 0%</div>
+        <p>如果你想了解更多，可以稍后联机搜索此错误：</p>
+        <p class="code">CRITICAL_PROCESS_DIED (0x000000EF)</p>
+        <div class="progress-row">
+            <div class="spinner"></div>
+            <span class="pct" id="pct">0%</span>
+            <div class="bar-bg"><div class="bar-fill" id="bar"></div></div>
+        </div>
+        <div class="qr">[ QR ]</div>
+    </div>
+</div>
+
+<!-- CMD -->
+<div id="cmd">
+    <div class="titlebar">
+        <span>📁 C:\Windows\System32\cmd.exe</span>
+        <span style="cursor:pointer">✕</span>
+    </div>
+    <div class="body" id="cmdBody"></div>
+</div>
+
+<!-- 跳吓层 -->
+<div id="scare"><canvas id="scareCanvas" style="width:100%;height:100%;"></canvas></div>
+
+<!-- 屏幕撕裂 -->
+<div id="glitch"><canvas id="glitchCanvas" style="width:100%;height:100%;"></canvas></div>
+
+<!-- 假弹窗 -->
+<div class="fake-alert" id="alert1" style="top:15%;left:25%;">
+    <h3>⚠️ Windows 安全警告</h3>
+    <p>检测到可疑进程正在访问您的个人文件。<br>进程名: svchost.exe (PID: 8432)<br>操作: 读取 C:\Users\Documents\</p>
+    <button onclick="closeAlert('alert1')">允许</button>
+    <button onclick="closeAlert('alert1')">阻止</button>
+</div>
+<div class="fake-alert" id="alert2" style="top:40%;left:35%;">
+    <h3>🔴 系统严重错误</h3>
+    <p>内存转储已完成。<br>物理内存: 75% 已损坏<br>建议立即关闭所有程序。</p>
+    <button onclick="closeAlert('alert2')">确定</button>
+</div>
+<div class="fake-alert" id="alert3" style="top:55%;left:20%;">
+    <h3>💀 加密进程已启动</h3>
+    <p>文件加密已开始...<br>已加密: <span id="encCount">247</span> 个文件<br>路径: C:\Users\*\*.*</p>
+    <button onclick="closeAlert('alert3'); showFinalScare();">停止加密</button>
+</div>
+
+<div class="disclaimer">⚠ 这只是一个网页恶作剧，没有任何实际侵入行为 · 你的电脑是安全的</div>
+
+<script>
+// ==================== 音频引擎 ====================
+var audioCtx = null;
+function initAudio() {
+    if (!audioCtx) {
+        try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {}
+    }
+}
+function playNoise(type, duration, vol) {
+    if (!audioCtx) return;
+    vol = vol || 0.08;
+    var len = audioCtx.sampleRate * duration;
+    var buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+    var data = buf.getChannelData(0);
+    for (var i = 0; i < len; i++) {
+        if (type === 'static') {
+            data[i] = (Math.random() * 2 - 1) * vol;
+        } else if (type === 'low') {
+            data[i] = (Math.random() * 2 - 1) * vol * (1 - i/len);
+            data[i] += Math.sin(i * 0.015) * vol * 0.5;
+        } else if (type === 'heart') {
+            var t = i / audioCtx.sampleRate;
+            var beat = (t % 0.8 < 0.08) ? 1 : 0;
+            data[i] = (Math.random() * 0.3 + beat * 0.7) * vol;
+        } else if (type === 'scream') {
+            var t = i / audioCtx.sampleRate;
+            data[i] = Math.sin(t * 200 + Math.sin(t * 30) * 100) * vol * Math.min(1, t * 10);
+            data[i] += (Math.random() * 2 - 1) * vol * 0.3;
+        }
+    }
+    var src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    var gain = audioCtx.createGain();
+    gain.gain.value = 1;
+    src.connect(gain);
+    gain.connect(audioCtx.destination);
+    src.start();
+    return { src: src, gain: gain };
+}
+
+// ==================== Phase 1: BSOD ====================
+setTimeout(function() {
+    initAudio();
+    document.getElementById('bsod').classList.add('show');
+    playNoise('low', 0.5, 0.03);
+}, 600);
+
+var pct = 0;
+var bsodTimer = setInterval(function() {
+    pct += Math.random() * 3.5;
+    if (pct > 100) pct = 100;
+    document.getElementById('pct').textContent = Math.floor(pct) + '%';
+    document.getElementById('bar').style.width = pct + '%';
+    if (pct >= 100) {
+        clearInterval(bsodTimer);
+        setTimeout(function() {
+            document.getElementById('bsod').classList.remove('show');
+            phase2_CMD();
+        }, 1200);
+    }
+}, 280);
+
+// ==================== Phase 2: CMD ====================
+function phase2_CMD() {
+    var cmd = document.getElementById('cmd');
+    var body = document.getElementById('cmdBody');
+    cmd.classList.add('show');
+
+    var script = [
+        { t: 'Microsoft Windows [Version 10.0.22631.4602]', c: 'dim' },
+        { t: '(c) Microsoft Corporation. All rights reserved.', c: 'dim' },
+        { t: '', c: '' },
+        { t: 'C:\\Users\\Admin> whoami', c: 'white' },
+        { t: 'desktop-a7x9k2\\admin', c: 'info' },
+        { t: '', c: '' },
+        { t: 'C:\\Users\\Admin> netstat -ano | findstr LISTENING', c: 'white' },
+        { t: '  TCP    0.0.0.0:135      0.0.0.0:0      LISTENING       1024', c: 'dim' },
+        { t: '  TCP    0.0.0.0:445      0.0.0.0:0      LISTENING       4', c: 'dim' },
+        { t: '  TCP    0.0.0.0:3389     0.0.0.0:0      LISTENING       2056', c: 'dim' },
+        { t: '  TCP    0.0.0.0:5985     0.0.0.0:0      LISTENING       4', c: 'dim' },
+        { t: '  TCP    0.0.0.0:47001    0.0.0.0:0      LISTENING       4', c: 'dim' },
+        { t: '', c: '' },
+        { t: 'C:\\Users\\Admin> powershell -Enc UwB0AGEAcgB0AC0AUwBsAGUAZQBwACAALQBTAGUAYwBvAG4AZABzACAAMgA7AA==', c: 'white' },
+        { t: '', c: '' },
+        { t: '[!] 远程会话已建立', c: 'warn' },
+        { t: '[+] 目标: 192.168.1.' + r(100,254), c: 'info' },
+        { t: '[+] 协议: RDP over TLS 1.3', c: 'info' },
+        { t: '[+] 权限: NT AUTHORITY\\SYSTEM', c: 'err' },
+        { t: '', c: '' },
+        { t: '[*] 正在枚举用户目录...', c: 'warn' },
+        { t: '  ├─ C:\\Users\\Admin\\Documents\\', c: 'dim' },
+        { t: '  ├─ C:\\Users\\Admin\\Desktop\\', c: 'dim' },
+        { t: '  ├─ C:\\Users\\Admin\\Pictures\\', c: 'dim' },
+        { t: '  └─ C:\\Users\\Admin\\AppData\\', c: 'dim' },
+        { t: '', c: '' },
+        { t: '[*] 正在扫描浏览器数据...', c: 'warn' },
+        { t: '  ├─ Chrome: ' + r(100,999) + ' 条密码记录', c: 'err' },
+        { t: '  ├─ Edge: ' + r(50,300) + ' 条密码记录', c: 'err' },
+        { t: '  └─ Cookies: ' + r(500,3000) + ' 条', c: 'dim' },
+        { t: '', c: '' },
+        { t: '[!] 启动文件加密模块...', c: 'err' },
+        { t: '', c: '' },
+    ];
+
+    // 动态加密文件列表
+    var dirs = ['Documents', 'Desktop', 'Pictures', 'Downloads', 'Videos', 'Music', 'OneDrive', 'Projects', 'Backup', 'Archive'];
+    var exts = ['.docx', '.xlsx', '.pdf', '.jpg', '.png', '.mp4', '.zip', '.pptx', '.txt', '.psd', '.ai', '.mov', '.mp3', '.db', '.sql'];
+    
+    var encFiles = [];
+    for (var i = 0; i < 35; i++) {
+        var d = dirs[Math.floor(Math.random() * dirs.length)];
+        var f = 'file_' + r(1000,9999) + exts[Math.floor(Math.random() * exts.length)];
+        encFiles.push('  [ENCRYPTED] C:\\Users\\Admin\\' + d + '\\' + f);
+    }
+
+    for (var i = 0; i < encFiles.length; i++) {
+        script.push({ t: encFiles[i], c: 'err' });
+    }
+
+    script.push({ t: '', c: '' });
+    script.push({ t: '[!] 加密完成: ' + (encFiles.length + 35) + ' 个文件', c: 'err' });
+    script.push({ t: '[!] 正在注入 Camera0 驱动...', c: 'warn' });
+    script.push({ t: '[+] Camera0: 已激活 (30fps)', c: 'err' });
+    script.push({ t: '[+] 视频流已建立', c: 'err' });
+
+    var line = 0;
+    function next() {
+        if (line >= script.length) {
+            body.innerHTML += '\n<span class="err">>> 按任意键继续... <span class="cmd-cursor"></span></span>\n';
+            body.scrollTop = body.scrollHeight;
+            // 弹出假弹窗
+            setTimeout(function() {
+                document.getElementById('alert1').classList.add('show');
+                playNoise('heart', 0.5, 0.04);
+            }, 2000);
+            return;
+        }
+        var s = script[line];
+        if (s.c === 'white') {
+            body.innerHTML += '<span class="white">' + s.t + '</span><span class="cmd-cursor"></span>\n';
+        } else {
+            body.innerHTML += '<span class="' + s.c + '">' + s.t + '</span>\n';
+        }
+        body.scrollTop = body.scrollHeight;
+        line++;
+        var delay = s.t.includes('ENCRYPTED') ? 60 + Math.random() * 80 :
+                    s.t.includes('Camera') ? 1200 : 180 + Math.random() * 500;
+        setTimeout(next, delay);
+    }
+    next();
+    playNoise('low', 2, 0.04);
+}
+
+// ==================== 弹窗逻辑 ====================
+function closeAlert(id) {
+    document.getElementById(id).classList.remove('show');
+    if (id === 'alert1') {
+        setTimeout(function() {
+            document.getElementById('alert2').classList.add('show');
+        }, 800);
+    } else if (id === 'alert2') {
+        setTimeout(function() {
+            document.getElementById('alert3').classList.add('show');
+            // 加密计数增加
+            var cnt = 247;
+            var timer = setInterval(function() {
+                cnt += Math.floor(Math.random() * 15);
+                var el = document.getElementById('encCount');
+                if (el) el.textContent = cnt;
+                if (cnt > 5000) clearInterval(timer);
+            }, 300);
+        }, 1000);
+    }
+}
+
+// ==================== 终极大跳吓 ====================
+function showFinalScare() {
+    document.getElementById('cmd').classList.remove('show');
+    document.getElementById('alert3').classList.remove('show');
+    document.getElementById('glitch').classList.add('show');
+    playNoise('scream', 1.5, 0.15);
+
+    // 屏幕撕裂效果
+    var gc = document.getElementById('glitchCanvas');
+    var gctx = gc.getContext('2d');
+    gc.width = window.innerWidth;
+    gc.height = window.innerHeight;
+
+    var glitchFrames = 0;
+    var glitchTimer = setInterval(function() {
+        gctx.clearRect(0, 0, gc.width, gc.height);
+        
+        // 红蓝偏移
+        for (var i = 0; i < 30; i++) {
+            var y = Math.random() * gc.height;
+            var h = Math.random() * 60 + 10;
+            var offset = (Math.random() - 0.5) * 80;
+            gctx.fillStyle = 'rgba(255,0,0,' + (Math.random() * 0.3) + ')';
+            gctx.fillRect(offset, y, gc.width, h);
+            gctx.fillStyle = 'rgba(0,200,255,' + (Math.random() * 0.3) + ')';
+            gctx.fillRect(-offset, y, gc.width, h);
+        }
+        // 横线撕裂
+        for (var i = 0; i < 15; i++) {
+            var y = Math.random() * gc.height;
+            gctx.fillStyle = 'rgba(255,255,255,' + (Math.random() * 0.5) + ')';
+            gctx.fillRect(0, y, gc.width, 2 + Math.random() * 3);
+        }
+
+        glitchFrames++;
+        if (glitchFrames > 12) {
+            clearInterval(glitchTimer);
+            document.getElementById('glitch').classList.remove('show');
+            finalJumpscare();
+        }
+    }, 80);
+}
+
+function finalJumpscare() {
+    var scare = document.getElementById('scare');
+    scare.classList.add('show');
+    
+    var canvas = document.getElementById('scareCanvas');
+    var ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    // 恐怖人脸 (比上一版更精细)
+    var W = canvas.width, H = canvas.height;
+    var cx = W/2, cy = H/2;
+
+    // 背景：暗红色
+    var grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W,H));
+    grad.addColorStop(0, '#2a0808');
+    grad.addColorStop(0.7, '#0a0000');
+    grad.addColorStop(1, '#000');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    // 头型
+    ctx.fillStyle = '#1a0a05';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, W*0.38, H*0.42, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // 血丝背景纹理
+    for (var i = 0; i < 60; i++) {
+        ctx.strokeStyle = 'rgba(80,10,10,' + (Math.random() * 0.3) + ')';
+        ctx.lineWidth = Math.random() * 2;
+        ctx.beginPath();
+        ctx.moveTo(cx + (Math.random() - 0.5) * W*0.7, cy + (Math.random() - 0.5) * H*0.8);
+        ctx.lineTo(cx + (Math.random() - 0.5) * W*0.7, cy + (Math.random() - 0.5) * H*0.8);
+        ctx.stroke();
+    }
+
+    // 眼眶 - 深陷
+    var eyeY = cy - H*0.06;
+    ctx.fillStyle = '#000';
+    ctx.shadowColor = '#300';
+    ctx.shadowBlur = 30;
+
+    // 左眼眶
+    ctx.beginPath();
+    ctx.ellipse(cx - W*0.13, eyeY, W*0.09, H*0.12, -0.1, 0, Math.PI*2);
+    ctx.fill();
+    // 右眼眶
+    ctx.beginPath();
+    ctx.ellipse(cx + W*0.13, eyeY, W*0.09, H*0.12, 0.1, 0, Math.PI*2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // 眼白
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.ellipse(cx - W*0.13, eyeY, W*0.06, H*0.08, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(cx + W*0.13, eyeY, W*0.06, H*0.08, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // 瞳孔 - 大而黑，布满血丝
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(cx - W*0.13, eyeY, W*0.03, 0, Math.PI*2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + W*0.13, eyeY, W*0.03, 0, Math.PI*2);
+    ctx.fill();
+
+    // 瞳孔高光（不自然的亮点）
+    ctx.fillStyle = '#f00';
+    ctx.beginPath();
+    ctx.arc(cx - W*0.135, eyeY - H*0.01, W*0.008, 0, Math.PI*2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + W*0.125, eyeY - H*0.01, W*0.008, 0, Math.PI*2);
+    ctx.fill();
+
+    // 眼下血丝
+    for (var i = 0; i < 20; i++) {
+        var ex = cx + (Math.random() - 0.5) * W*0.25;
+        ctx.strokeStyle = 'rgba(200,20,20,' + (0.2 + Math.random() * 0.5) + ')';
+        ctx.lineWidth = 0.5 + Math.random();
+        ctx.beginPath();
+        ctx.moveTo(ex, eyeY + H*0.04);
+        ctx.lineTo(ex + (Math.random() - 0.5) * 40, eyeY + H*0.08 + Math.random() * 30);
+        ctx.stroke();
+    }
+
+    // 嘴 - 不自然地咧开
+    var mouthY = cy + H*0.14;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(cx, mouthY, W*0.14, H*0.11, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // 牙齿 - 不规则的
+    ctx.fillStyle = '#ddd';
+    for (var i = 0; i < 8; i++) {
+        var tx = cx - W*0.1 + i * W*0.028;
+        var th = H*0.02 + Math.random() * H*0.025;
+        ctx.save();
+        ctx.translate(tx, mouthY - H*0.02);
+        ctx.rotate((Math.random() - 0.5) * 0.3);
+        ctx.fillRect(-W*0.01, -th/2, W*0.018 + Math.random() * 0.01, th);
+        ctx.restore();
+    }
+
+    // 嘴角血迹
+    ctx.fillStyle = 'rgba(180,10,10,0.7)';
+    ctx.beginPath();
+    ctx.arc(cx - W*0.12, mouthY + H*0.04, W*0.015, 0, Math.PI*2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + W*0.12, mouthY + H*0.04, W*0.015, 0, Math.PI*2);
+    ctx.fill();
+
+    // 鼻影
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.beginPath();
+    ctx.moveTo(cx - W*0.02, eyeY + H*0.04);
+    ctx.quadraticCurveTo(cx, cy + H*0.05, cx + W*0.02, eyeY + H*0.04);
+    ctx.fill();
+
+    // 随机血点
+    for (var i = 0; i < 15; i++) {
+        ctx.fillStyle = 'rgba(' + (100 + Math.random() * 155) + ',0,0,' + (0.3 + Math.random() * 0.7) + ')';
+        ctx.beginPath();
+        ctx.arc(cx + (Math.random() - 0.5) * W*0.5, cy + (Math.random() - 0.5) * H*0.6, 2 + Math.random() * 8, 0, Math.PI*2);
+        ctx.fill();
+    }
+
+    // 闪烁后显示最终文字
+    var textAlpha = 0;
+    var textTimer = setInterval(function() {
+        textAlpha += 0.03;
+        ctx.fillStyle = 'rgba(180,0,0,' + textAlpha + ')';
+        ctx.font = (W * 0.04) + 'px "Microsoft YaHei", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('你的电脑已被锁定', cx, H*0.88);
+        if (textAlpha >= 1) clearInterval(textTimer);
+    }, 80);
+
+    playNoise('scream', 2, 0.18);
+
+    // 10秒后自动消失
+    setTimeout(function() {
+        scare.classList.remove('show');
+        document.body.style.background = '#0078d7';
+        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;color:#fff;font-family:\'Microsoft YaHei\',sans-serif;">' +
+            '<div style="font-size:80px;">:(</div>' +
+            '<div style="font-size:22px;margin:15px 0;">系统遇到严重错误，需要重新启动</div>' +
+            '<div style="font-size:13px;opacity:0.7;">错误代码: 0x0000001A · MEMORY_MANAGEMENT</div>' +
+            '<div style="margin-top:40px;font-size:11px;opacity:0.4;">这只是一个网页恶作剧，你的电脑一切正常 😄</div></div>';
+    }, 10000);
+}
+
+// ==================== 鼠标陷阱 ====================
+var closeAttempts = 0;
+document.addEventListener('mouseleave', function(e) {
+    closeAttempts++;
+    if (closeAttempts <= 2) {
+        playNoise('static', 0.3, 1);
+        var f = document.createElement('div');
+        f.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,0,0,0.15);z-index:150;pointer-events:none;';
+        document.body.appendChild(f);
+        setTimeout(function() { f.remove(); }, 80);
+    }
+});
+
+// 键盘恐慌
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' || e.key === 'F4' || (e.ctrlKey && e.key === 'w')) {
+        e.preventDefault();
+        playNoise('static', 0.2, 1);
+        var f = document.createElement('div');
+        f.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,0,0,0.2);z-index:150;pointer-events:none;';
+        document.body.appendChild(f);
+        setTimeout(function() { f.remove(); }, 100);
+        return false;
+    }
+    if (Math.random() < 0.3) {
+        var f = document.createElement('div');
+        f.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,0,0,' + (Math.random() * 0.08) + ');z-index:150;pointer-events:none;';
+        document.body.appendChild(f);
+        setTimeout(function() { f.remove(); }, 50);
+    }
+});
+
+// 右键禁用
+document.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+
+// 工具函数
+function r(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+
+// Console 免责
+console.log('%c⚠️ 这只是一个网页恶作剧，没有任何实际危害！', 'font-size:16px; color:#f00;');
+</script>
+</body>
+</html>
